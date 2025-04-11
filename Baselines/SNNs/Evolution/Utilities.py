@@ -17,8 +17,9 @@ def spike_to_label(spike_train, scheme = 'highest_voltage'):
         # pick the index of along the clsses dimension
         result = spike_counts.argmax(dim=-1)
     elif scheme == 'highest_voltage':
-        mem_out_aux = torch.max(spike_train, dim = 0)[0]
-        result = torch.argmax(mem_out_aux, dim=1)
+        # here the spike train is actually voltages with shape [time steps, batch, classes]
+        mem_out_aux = torch.max(spike_train, dim = 0)[0] # 0 is indexing max value (rather than indiceis)
+        result = torch.argmax(mem_out_aux, dim=1) # result is of shape [batch size]
     else:
         raise Exception('Undefined Scheme')
     
@@ -34,3 +35,12 @@ def spike_count(spike_train):
         tensor: [batch_size, classes]
     """
     return spike_train.count_nonzero(dim=0)
+
+def voltage_to_logits(voltage, scheme = 'highest-voltage'):
+    # voltage shape: [time steps, batch, classes]
+    if scheme == 'highest-voltage':
+        result = voltage.max(dim=0)[0]
+    else:
+        raise('mechanism not defined')
+    
+    return result

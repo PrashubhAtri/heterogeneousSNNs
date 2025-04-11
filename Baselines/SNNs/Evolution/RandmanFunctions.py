@@ -4,8 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import TensorDataset
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-SEED = 12
+SEED = 42
 
 def standardize(x,eps=1e-7):
     # x's (which is actually y in the following code) shape will be [samples, units]
@@ -39,6 +38,9 @@ def make_spiking_dataset(nb_classes=10, nb_units=100, nb_steps=100, step_frac=1.
     data = []
     labels = []
     targets = []
+    
+    if SEED is not None:
+        np.random.seed(SEED)
     
     max_value = np.iinfo(int).max
     randman_seeds = np.random.randint(max_value, size=(nb_classes,nb_spikes) )
@@ -113,8 +115,8 @@ def get_randman_dataset(nb_classes = 2, nb_units = 10, nb_steps = 50, nb_samples
     data, label = make_spiking_dataset(nb_classes, nb_units, nb_steps, nb_spikes=1, nb_samples = nb_samples)
     spike_train = events_to_spike_train(data, nb_steps, nb_units)
     
-    spike_train = torch.Tensor(spike_train).to(device)
-    label = torch.Tensor(label).to(device)
+    spike_train = torch.Tensor(spike_train)
+    label = torch.Tensor(label)
     
     # encapulate using Torch.Dataset
     dataset = TensorDataset(spike_train, label)
