@@ -92,35 +92,77 @@ class SNN(nn.Module):
 # --------------------------
 CE = nn.CrossEntropyLoss()
 
-def hybrid_update(model, mean, vel, p_best, g_best, std, k, xb, yb, lr=0.01, acc_thr=0.95):
-    pop = mean + std * torch.randn(k, mean.numel(), device=DEVICE)
+def hybrid_update(model, mean, vel, p_best, g_best, std, k, xb, yb, lr=0.01, acc_thr=0.90):
+    pop = mean + std * torch.randn(k, mean.numel(), device=DEVICE)  # Sample population
     losses, accs = [], []
+
+    # Evaluate each sampled particle
     for vec in pop:
         model.load_flat(vec)
         out = model(xb).mean(0)
         losses.append(CE(out, yb).item())
         accs.append((out.argmax(1) == yb).float().mean().item())
+    
     losses = torch.tensor(losses, device=DEVICE)
-    accs   = torch.tensor(accs,   device=DEVICE)
+    accs = torch.tensor(accs, device=DEVICE)
 
-    best_idx = losses.argmin(); g_best = pop[best_idx] if losses[best_idx] < CE(model(xb).mean(0), yb) else g_best
+    # Update global best
+    best_idx = losses.argmin()
+    model.load_flat(mean)
+    curr_loss = CE(model(xb).mean(0), yb).item()
+    if losses[best_idx] < curr_loss:
+        g_best = pop[best_idx].clone()
 
+    # PSO-inspired velocity update
     r1, r2 = torch.rand(2, device=DEVICE)
-    vel = 0.5*vel + 1.5*r1*(p_best-mean) + 1.5*r2*(g_best-mean)
-    mean = mean + lr*vel
+    vel = 0.5 * vel + 1.5 * r1 * (p_best - mean) + 1.5 * r2 * (g_best - mean)
+    mean = mean + lr * vel
 
-    if accs[best_idx] < acc_thr:
-        mean = pop[losses.argsort()[:k//4]].mean(0)
-        print("Adaptive Pooling", end=" ")
-    p_best = mean.clone()
-
-    # quick batch log
+    # Evaluate new mean after PSO update
     model.load_flat(mean)
     out_now = model(xb).mean(0)
     loss_now = CE(out_now, yb)
     acc_now = (out_now.argmax(1) == yb).float().mean().item()
+
+    # Maintain personal best (only update if better)
+    model.load_flat(p_best)
+    pbest_loss = CE(model(xb).mean(0), yb).item()
+    if loss_now.item() < pbest_loss:
+        p_best = mean.clone()
+
+    # Adaptive Pooling with Offspring (if needed)
+    if accs[best_idx] < acc_thr:
+        topk_idx = losses.argsort()[:k // 4]
+        parent = pop[topk_idx]
+        offspring = parent + std * torch.randn_like(parent)  # Generate offspring
+
+        offspring_losses = []
+        for vec in offspring:
+            model.load_flat(vec)
+            out = model(xb).mean(0)
+            offspring_losses.append(CE(out, yb).item())
+        offspring_losses = torch.tensor(offspring_losses, device=DEVICE)
+
+        best_offspring_idx = offspring_losses.argsort()[:max(1, parent.size(0) // 2)]
+        mean = offspring[best_offspring_idx].mean(0).detach()
+
+        print("Adaptive Pooling with Offspring", end=" ")
+
+        # After pooling, re-evaluate mean and update p_best again if needed
+        model.load_flat(mean)
+        out_now = model(xb).mean(0)
+        loss_now = CE(out_now, yb)
+        acc_now = (out_now.argmax(1) == yb).float().mean().item()
+
+        model.load_flat(p_best)
+        pbest_loss = CE(model(xb).mean(0), yb).item()
+        if loss_now.item() < pbest_loss:
+            p_best = mean.clone()
+
+    # Logging
     print(f"Batch Acc: {acc_now*100:.1f}%", flush=True)
     wandb.log({"train_acc": acc_now, "train_loss": loss_now.item()}, commit=False)
+
     return mean, vel, p_best, g_best, loss_now.item()
 
 # --------------------------
